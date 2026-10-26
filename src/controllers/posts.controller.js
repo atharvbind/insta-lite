@@ -1,52 +1,114 @@
-
 const postsService = require("../services/posts.service");
+const {
+  getPagination,
+  isValidId,
+} = require("../utils/pagination");
 
-async function create(req, res) {
-  const { imageUrl, caption, location } = req.body;
+const POST_SORT_FIELDS = ["createdAt", "updatedAt", "likes"];
 
-  if (typeof imageUrl !== "string" || imageUrl.trim() === "") {
+function sendPrismaError(res, error) {
+  if (error.code === "P2002") {
+    return res.status(409).json({ error: "Already exists" });
+  }
+
+  if (error.code === "P2003") {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (error.code === "P2025") {
+    return res.status(404).json({ error: "Post not found" });
+  }
+
+  console.error(error);
+  return res.status(500).json({ error: "Internal server error" });
+}
+
+function isValidDate(value) {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+async function createPost(req, res) {
+  const { imageUrl, authorId } = req.body;
+
+  if (
+    !imageUrl ||
+    authorId === undefined ||
+    authorId === null ||
+    authorId === ""
+  ) {
     return res.status(400).json({
-      error: "imageUrl is required",
+      error: "imageUrl and authorId are required",
     });
   }
 
-  try {
-    const post = await postsService.createPost({
-      imageUrl,
-      ...(caption !== undefined && { caption }),
-      ...(location !== undefined && { location }),
-    });
+  if (!Number.isInteger(Number(authorId)) || Number(authorId) <= 0) {
+    return res.status(404).json({ error: "User not found" });
+  }
 
+  try {
+    const post = await postsService.createPost(req.body);
     return res.status(201).json(post);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    if (error.code === "P2003") {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return sendPrismaError(res, error);
   }
 }
 
-async function list(req, res) {
+async function getPosts(req, res) {
+  const pagination = getPagination(req.query);
+
+  if (pagination.error) {
+    return res.status(400).json({ error: pagination.error });
+  }
+
+  const sortBy = req.query.sortBy || "createdAt";
+  const order = req.query.order || "desc";
+
+  if (!POST_SORT_FIELDS.includes(sortBy)) {
+    return res.status(400).json({
+      error: "sortBy must be one of: createdAt, updatedAt, likes",
+    });
+  }
+
+  if (!["asc", "desc"].includes(order)) {
+    return res.status(400).json({
+      error: "order must be asc or desc",
+    });
+  }
+
+  if (
+    (req.query.from !== undefined && !isValidDate(req.query.from)) ||
+    (req.query.to !== undefined && !isValidDate(req.query.to))
+  ) {
+    return res.status(400).json({
+      error: "from and to must be valid dates",
+    });
+  }
+
   try {
-    const posts = await postsService.listPosts();
-    return res.status(200).json(posts);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      error: "Internal server error",
+    const result = await postsService.getPosts({
+      ...req.query,
+      ...pagination,
+      sortBy,
+      order,
     });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return sendPrismaError(res, error);
   }
 }
 
-async function getOne(req, res) {
-  const id = Number(req.params.id);
-
-  if (!Number.isSafeInteger(id) || id <= 0) {
+async function getPostById(req, res) {
+  if (!isValidId(req.params.id)) {
     return res.status(404).json({ error: "Post not found" });
   }
 
   try {
-    const post = await postsService.getPostById(id);
+    const post = await postsService.getPostById(req.params.id);
 
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
@@ -54,67 +116,40 @@ async function getOne(req, res) {
 
     return res.status(200).json(post);
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    return sendPrismaError(res, error);
   }
 }
 
-async function update(req, res) {
-  const id = Number(req.params.id);
-
-  if (!Number.isSafeInteger(id) || id <= 0) {
+async function updatePost(req, res) {
+  if (!isValidId(req.params.id)) {
     return res.status(404).json({ error: "Post not found" });
   }
 
-  const { caption, location } = req.body;
-  const data = {};
-
-  if (caption !== undefined) data.caption = caption;
-  if (location !== undefined) data.location = location;
-
   try {
-    const post = await postsService.updatePost(id, data);
+    const post = await postsService.updatePost(req.params.id, req.body);
     return res.status(200).json(post);
   } catch (error) {
-    if (error.code === "P2025") {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
-    console.error(error);
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    return sendPrismaError(res, error);
   }
 }
 
-async function remove(req, res) {
-  const id = Number(req.params.id);
-
-  if (!Number.isSafeInteger(id) || id <= 0) {
+async function deletePost(req, res) {
+  if (!isValidId(req.params.id)) {
     return res.status(404).json({ error: "Post not found" });
   }
 
   try {
-    await postsService.deletePost(id);
-    return res.status(204).end();
+    await postsService.deletePost(req.params.id);
+    return res.status(204).send();
   } catch (error) {
-    if (error.code === "P2025") {
-      return res.status(404).json({ error: "Post not found" });
-    }
-
-    console.error(error);
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    return sendPrismaError(res, error);
   }
 }
 
 module.exports = {
-  create,
-  list,
-  getOne,
-  update,
-  remove,
+  createPost,
+  getPosts,
+  getPostById,
+  updatePost,
+  deletePost,
 };

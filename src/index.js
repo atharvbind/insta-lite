@@ -1,18 +1,20 @@
 const express = require("express");
-const usersRouter = require("./routes/users.routes");
-const postsRouter = require("./routes/posts.routes");
+const userRoutes = require("./routes/users.routes");
+const postRoutes = require("./routes/posts.routes");
 
 const app = express();
 
 app.use(express.json());
 
 app.get("/health", (req, res) => {
-  res.status(200).json({ status: "OK" });
+  res.status(200).json({ status: "ok" });
 });
 
-app.use("/users", usersRouter);
-app.use("/posts", postsRouter);
+app.use("/users", userRoutes);
+app.use("/posts", postRoutes);
 
-app.listen(3000, () => {
-  console.log("Server started on port 3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
